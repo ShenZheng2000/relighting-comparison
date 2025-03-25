@@ -4,6 +4,7 @@ import numpy as np
 from PIL import Image
 from diffusers.utils import load_image
 from image_gen_aux import DepthPreprocessor  # Ensure this module is correctly imported
+import yaml
 
 # Load FluxControlNet depth preprocessor
 depth_processor = DepthPreprocessor.from_pretrained("LiheYoung/depth-anything-large-hf")
@@ -40,6 +41,7 @@ def process_body_mask(input_path, white_mask_output_path):
         tuple: (white_mask_path, black_mask_path)
     """
     img = Image.open(input_path).convert("RGBA")
+    orig_w, orig_h = img.size
     img = np.array(img)
 
     # Extract the alpha channel (mask)
@@ -57,6 +59,37 @@ def process_body_mask(input_path, white_mask_output_path):
     print(f"Saved masks: {white_mask_output_path}, {black_mask_output_path}")
     return white_mask_output_path, black_mask_output_path
 
+
+def pad_depth_image(input_path, output_path, target_width, target_height):
+    """
+    Resize and pad a depth image to exactly target_width x target_height.
+    If the image is larger in any dimension, it is scaled down (keeping aspect ratio)
+    such that it fits within the target dimensions, then padded with zeros (black) to fill.
+
+    Args:
+        input_path (str): Path to the input depth image.
+        output_path (str): Path to save the padded depth image.
+        target_width (int): The target width.
+        target_height (int): The target height.
+    """
+    img = Image.open(input_path).convert("RGB")
+    orig_w, orig_h = img.size
+
+    # Calculate scaling factor (do not upscale if image is already smaller)
+    scale = min(target_width / orig_w, target_height / orig_h, 1.0)
+    new_w = int(orig_w * scale)
+    new_h = int(orig_h * scale)
+    resized_img = img.resize((new_w, new_h), resample=Image.BILINEAR)
+
+    # Create a new black image of target dimensions
+    new_img = Image.new("RGB", (target_width, target_height), (0, 0, 0))
+    # Center the resized image in the new blank image
+    pad_left = (target_width - new_w) // 2
+    pad_top = (target_height - new_h) // 2
+
+    new_img.paste(resized_img, (pad_left, pad_top))
+    new_img.save(output_path)
+    print(f"Saved padded depth image to {output_path}")
 
 
 def process_folder(folder_path):
@@ -76,7 +109,7 @@ def process_folder(folder_path):
     original_images = [f for f in os.listdir(folder_path) if f.startswith("bdy_") and f.lower().endswith(valid_extensions)]
     if original_images:
         original_image_path = os.path.join(folder_path, original_images[0])
-        # NOTE: Uncomment the following line to process the depth map if needed:
+        # Uncomment the next line to generate the depth map if needed:
         # process_depth_map(original_image_path, depth_output_path)
 
     # Step 2: Process Body Mask
@@ -103,6 +136,14 @@ def process_folder(folder_path):
         Image.fromarray(filtered_depth.astype(np.uint8)).save(depth_output_path_filtered)
         print(f"Filtered depth map with body mask: {depth_output_path_filtered}")
 
+        # Step 4: Pad or resize the filtered depth map to match the original image's resolution
+        # orig_img = Image.open(original_image_path)  # Load the original image
+        # orig_w, orig_h = orig_img.size              # Get its dimensions
+        # NOTE: hardcode as 768x768 for now
+        orig_w, orig_h = 768, 768
+
+        depth_output_path_filtered_pad = os.path.join(pre_processing_path, "depth_filtered_pad.png")
+        pad_depth_image(depth_output_path_filtered, depth_output_path_filtered_pad, orig_w, orig_h)
 
 
 def process_all_folders(root_directory):

@@ -8,6 +8,8 @@ import glob
 import json
 import glob
 from PIL import Image, ImageDraw, ImageFont
+import yaml
+from omegaconf import OmegaConf
 
 '''
 First, run the inference
@@ -77,32 +79,36 @@ relighting_prompts = {
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser()
-parser.add_argument("--input_dir", type=str, required=True, help="Path to the folder containing images and annotations")
-parser.add_argument("--height", type=int, default=768) 
-parser.add_argument("--width", type=int, default=768) 
-parser.add_argument("--cfg", type=float, default=5) 
-parser.add_argument("--num_steps", type=int, default=30)
-parser.add_argument("--max_images", type=lambda x: int(x) if x.isdigit() else None, default=None, help="Maximum number of images to process")
-parser.add_argument("--output_dir", type=str, required=True, help="Path to the output directory")
-parser.add_argument("--relight_type", type=str, required=True, choices=relighting_prompts.keys(), help="Specify which relighting type to use")
-parser.add_argument("--gpu", type=int, required=True, help="Specify which GPU to use (e.g., 0 for cuda:0)")
-parser.add_argument("--flux_type", type=str, default="FluxControlPipeline") # [FluxControlPipeline, FluxFillPipeline]
-parser.add_argument("--depth_fg_only", action="store_true", help="Use only the foreground of the depth map")
+parser.add_argument("--base_config", type=str, default="configs/base.yaml", help="Path to the base configuration file")
+parser.add_argument("--exp_config", type=str, required=True, help="Path to the experiment-specific configuration file")
+parser.add_argument("--relight_type", type=str, required=True, help="Specify relighting type")
+parser.add_argument("--gpu", type=int, required=True, help="GPU ID to use")
 args = parser.parse_args()
 
+# Load and merge configurations using OmegaConf
+base_cfg = OmegaConf.load(args.base_config)
+exp_cfg = OmegaConf.load(args.exp_config)
+config = OmegaConf.merge(base_cfg, exp_cfg)
+
+# Inject CLI arguments into the merged configuration
+config.relight_type = args.relight_type
+config.gpu = args.gpu
+config.output_dir = os.path.splitext(os.path.basename(args.exp_config))[0]
+
+print(OmegaConf.to_yaml(config))
 
 # **🔹 Load pre-trained model on the specified GPU**
-device = f"cuda:{args.gpu}"
+device = f"cuda:{config.gpu}"
 
-if args.flux_type == "FluxFillPipeline":
+if config.flux_type == "FluxFillPipeline":
     raise NotImplementedError("FluxFillPipeline is not implemented yet.")
-elif args.flux_type == "FluxControlPipeline":
+elif config.flux_type == "FluxControlPipeline":
     pipe = FluxControlPipeline.from_pretrained(
         "black-forest-labs/FLUX.1-Depth-dev",
         torch_dtype=torch.bfloat16
-    ).to(device)  # ✅ Correct
+    ).to(device)
 else:
-    raise ValueError(f"Invalid flux_type: {args.flux_type}")
+    raise ValueError(f"Invalid flux_type: {config.flux_type}")
 
 pipe.set_progress_bar_config(disable=True)
 
@@ -110,78 +116,77 @@ pipe.set_progress_bar_config(disable=True)
 count = 0
 
 # Iterate through each subfolder
-for subfolder in sorted(os.listdir(args.input_dir)):
-
-    subfolder_path = os.path.join(args.input_dir, subfolder)
-
-    # Locate annotation files
+for subfolder in sorted(os.listdir(config.input_dir)):
+    subfolder_path = os.path.join(config.input_dir, subfolder)
     annotation_path = glob.glob(os.path.join(subfolder_path, "*.txt"))[0]
-
-    # Locate and load source image
     source_image_path = glob.glob(os.path.join(subfolder_path, "bdy_*"))[0]
     source_image = Image.open(source_image_path).convert('RGB')
-
+    
     with open(annotation_path, "r") as f:
         base_prompt = f.read().strip()
-
-    # **🔹 Only process the specified relighting type**
-    relight_id = args.relight_type
+    
+    relight_id = config.relight_type
     relight_prompt = relighting_prompts[relight_id]
-
+    
     final_prompt = (
         f"A photo of a person in a 2 by 1 grid. "
         f"On the left, {base_prompt} "
         f"On the right, {relight_prompt}."
     )
-
-    # Load and process depth image
-    if args.flux_type == "FluxControlPipeline":
-
-        # NOTE: add depth_fg_only option
-        if args.depth_fg_only:
-            print("using depth_fg_only")
+    
+    # Load depth image based on depth_mode (TODO: get depth1 and depth2 from outpainting pipeline)
+    if config.flux_type == "FluxControlPipeline":
+        if config.depth_mode == "filtered":
             depth_path = os.path.join(subfolder_path, "pre_processing/depth_filtered.png")
-            output_dir = f"{args.output_dir}_depth_fg_only"
-        else:
+        elif config.depth_mode == "filtered_pad":
+            depth_path = os.path.join(subfolder_path, "pre_processing/depth_filtered_pad.png")
+        elif config.depth_mode == "raw":
             depth_path = os.path.join(subfolder_path, "pre_processing/depth.png")
-            output_dir = args.output_dir
-            
+        else:
+            raise ValueError(f"Unknown depth_mode: {config.depth_mode}")
+                    
+        output_dir = config.output_dir
         depth_map = Image.open(depth_path).convert('RGB')
         depth_map_2x1 = Image.fromarray(np.hstack([np.array(depth_map), np.array(depth_map)]))
-
-        # **🔹 Generate image on the specified GPU**
+    
+        if config.match_source_resolution:
+            print("using source resolution!")
+            height, width = source_image.height, source_image.width
+            print(f"height: {height}, width: {width}")
+        else:
+            height, width = config.height, config.width
+    
         image = pipe(
             prompt=final_prompt,
             control_image=depth_map_2x1,
-            height=args.height,
-            width=args.width * 2,
-            guidance_scale=args.cfg,
-            num_inference_steps=args.num_steps,
+            height=height,
+            width=width * 2,
+            guidance_scale=config.cfg,
+            num_inference_steps=config.num_steps,
             max_sequence_length=512,
-            generator=torch.Generator("cpu").manual_seed(42)
+            generator=torch.Generator("cpu").manual_seed(42),
         ).images[0]
 
-    # Load and process body mask
-    elif args.flux_type == "FluxFillPipeline":
+        # NEW: Resize generated image if flag is set
+        if config.resize_generated:
+            print("Resizing generated image to match source resolution (2x width).")
+            image = image.resize((source_image.width * 2, source_image.height), Image.BILINEAR)
 
+    elif config.flux_type == "FluxFillPipeline":
         raise NotImplementedError("FluxFillPipeline is not implemented yet.")
-
-    # Create relighting-specific output directory
+    
     output_dir_relight = os.path.join("outputs", output_dir, relight_id)
     os.makedirs(output_dir_relight, exist_ok=True)
-
-    # Save output image with folder name as filename
+    
     output_filename = f"{os.path.basename(subfolder_path)}.png"
     output_path = os.path.join(output_dir_relight, output_filename)
-
-    # concat source and generated images
+    
     concatenated_image = concat_images_side_by_side(source_image, image)
     concatenated_image.save(output_path)
     print(f"[{count+1}] Saved: {output_path}")
-
+    
     count += 1
-
-    # Stop if max_images is reached
-    if args.max_images and count >= args.max_images:
-        print(f"Reached max_images limit ({args.max_images}). Stopping.")
-        break  # Exit inner loop
+    
+    if config.max_images and count >= config.max_images:
+        print(f"Reached max_images limit ({config.max_images}). Stopping.")
+        break
