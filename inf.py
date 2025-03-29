@@ -10,6 +10,7 @@ import glob
 from PIL import Image, ImageDraw, ImageFont
 import yaml
 from omegaconf import OmegaConf
+from utils import concat_images_side_by_side
 
 '''
 First, run the inference
@@ -17,42 +18,14 @@ First, run the inference
     cd relighting-comparison
 
 (build a local webpage)
-    cd outputs/output_3_15_*/
+    cd outputs/XXXXXXXX/
     python -m http.server 8000
 '''
 
-def concat_images_side_by_side(image1, image2):
-    """
-    Concatenates two images side-by-side, resizing both to the height of image2,
-    
-    Args:
-        image1 (PIL.Image): The first image (left side).
-        image2 (PIL.Image): The second image (right side).
-    Returns:
-        PIL.Image: The concatenated image
-    """
-    # Resize both images to the height of image2, preserving aspect ratio
-    target_height = image2.height
-    
-    # Resize image1
-    aspect_ratio1 = image1.width / image1.height
-    new_width1 = int(target_height * aspect_ratio1)
-    image1 = image1.resize((new_width1, target_height))
-    
-    # Create a new blank image with combined width
-    concatenated_image = Image.new('RGB', (image1.width + image2.width, target_height))
-    
-    # Paste the images side-by-side
-    concatenated_image.paste(image1, (0, 0))
-    concatenated_image.paste(image2, (image1.width, 0))
-    
-    return concatenated_image
 
-
+# NOTE: stick to this prompts for now 
 relighting_prompts = {
     # NOTE: add these into html files. 
-
-    # DONE
     "golden_hour": "Relit by warm, golden-hour sunlight filtering through the trees, casting long, soft-edged shadows and creating a dreamy, atmospheric glow.",
     "moonlight": "Relit by soft, bluish moonlight streaming through an open window, casting gentle, diffused shadows and creating a serene, nighttime ambiance.",
     "noon_sunlight": "Relit by bright, overhead noon sunlight, creating strong, well-defined shadows with high contrast and a crisp, sharp atmosphere.",
@@ -63,18 +36,21 @@ relighting_prompts = {
     "meteor_shower": "Relit by streaking meteors across the night sky, casting fleeting, dynamic glows with shifting highlights and deep cosmic shadows.",
     "volcanic_glow": "Relit by the fiery red-orange glow of molten lava, casting intense, flickering shadows with deep contrast and an apocalyptic atmosphere.",
     "foggy_morning": "Relit by soft, diffused morning light filtering through thick fog, muting colors and softening edges to create an ethereal, mysterious ambiance.",
+}
 
-    # # More complex prompts (more details about scene geometries and light sources) => SKIP FOR NOW
-    # "golden_hour_2": "Relit by warm, golden-hour sunlight streaming through scattered tree branches, casting long, soft-edged shadows. The golden light reflects off surfaces, creating a rich, glowing warmth, while the dappled illumination highlights contours of the terrain and architecture.",
-    # "moonlight_2": "Relit by soft, bluish moonlight entering through an open window, casting diffused, elongated shadows. The light gently reflects off smooth surfaces, giving a cool, silvery glow, while deeper shadows soften edges, enhancing the tranquil nighttime atmosphere.",
-    # "noon_sunlight_2": "Relit by bright, overhead noon sunlight, casting short, sharply defined shadows. The intense light highlights textures like rough pavement and reflective glass, while shaded areas create stark contrast, emphasizing a crisp, high-contrast atmosphere.",
-    # "neon_lights_2": "Relit by vibrant neon signs glowing above rain-slicked streets, casting dynamic reflections in pink, blue, and purple hues. The neon glow seeps into narrow alleys, illuminating edges and silhouettes with a futuristic, high-energy ambiance.",
-    # "candlelight_2": "Relit by flickering candlelight, casting warm, golden hues that shift subtly across nearby surfaces. The soft light dances on wooden textures and fabric folds, while distant shadows blur gently, creating an intimate and cozy setting.",
-    # "spotlight_2": "Relit by a harsh, focused spotlight from above, creating extreme contrast with bright highlights and deep, hard-edged shadows. The intense beam isolates the subject, leaving surrounding areas in near-total darkness.",
-    # "thunderstorm_2": "Relit by sudden lightning flashes illuminating a stormy sky, casting intense, high-contrast light. The brief bursts expose rain-soaked textures and silhouettes of buildings before vanishing into deep shadows.",
-    # "meteor_shower_2": "Relit by streaking meteors across the night sky, casting short-lived, shifting glows. The momentary bursts of light reflect off metal and glass surfaces, creating fleeting highlights against a deep cosmic darkness.",
-    # "volcanic_glow_2": "Relit by molten lava's fiery red-orange glow, casting intense, flickering shadows. The hot light glows against jagged rocks, while thick, rising smoke softens distant edges with an ominous haze.",
-    # "foggy_morning_2": "Relit by diffused morning light filtering through thick fog, muting colors and softening edges. The fog scatters the light, creating a uniform glow, while silhouettes of trees and buildings fade into the misty distance.",
+
+# # NOTE: hardcode these prompts for now!!!!!!!!
+relighting_prompts_2 = {
+    "golden_hour": "relit by warm, golden-hour sunlight streaming through tall oak trees in a tranquil park, highlighting patches of wildflowers and casting long, soft-edged shadows across the grassy ground, creating a dreamy, atmospheric glow.",
+    "moonlight": "relit by cool, bluish moonlight streaming through an ancient, open window of a secluded manor, softly illuminating weathered stone walls draped in ivy and casting gentle, diffused shadows across a dew-kissed courtyard, evoking a serene, enchanted nocturnal ambiance.",
+    "noon_sunlight": "relit by bright, overhead noon sunlight blazing over a lively urban plaza, sharply defining every corner with crisp shadows and vivid highlights on modern glass and concrete structures, creating a dynamic and energetic daytime scene.",
+    "neon_lights": "relit by vibrant neon lights reflecting off rain-slicked city streets, where electric hues of pink, blue, and purple burst from storefronts and billboards, bathing the surroundings in a futuristic, cyberpunk glow.",
+    "candlelight": "relit by the gentle flicker of candlelight in an intimate setting, where warm amber tones softly dance over rustic wooden surfaces and delicate fabrics, creating a cozy, nostalgic ambiance filled with quiet charm.",
+    "spotlight": "relit by a harsh, focused spotlight that isolates its subject on a dark stage, casting stark, dramatic shadows and accentuating fine details, resulting in an intense, theatrical visual impact.",
+    "thunderstorm": "relit by sudden bursts of lightning during a raging thunderstorm, illuminating turbulent, swirling clouds and casting deep, shifting shadows over rain-soaked landscapes, evoking a dramatic, high-contrast spectacle.",
+    "meteor_shower": "relit by a dazzling meteor shower streaking across a starry night sky over a barren desert, with each fleeting, radiant trail briefly lighting up the horizon and lending an ethereal, cosmic mystique.",
+    "volcanic_glow": "relit by the fierce, fiery glow of molten lava cascading down a rugged mountainside, its vivid red and orange hues flickering against dark, ashen terrain, evoking an apocalyptic, otherworldly scene.",
+    "foggy_morning": "relit by the soft, diffused light of an early foggy morning in a quiet countryside, where gentle rays pierce through a thick mist over dew-covered fields and ancient trees, creating a serene, dreamlike atmosphere."
 }
 
 # Parse command-line arguments
@@ -115,6 +91,10 @@ pipe.set_progress_bar_config(disable=True)
 # Track processed count
 count = 0
 
+# use relighting_prompts_2
+if config.relighting_prompts_2:
+    relighting_prompts = relighting_prompts_2
+
 # Iterate through each subfolder
 for subfolder in sorted(os.listdir(config.input_dir)):
     subfolder_path = os.path.join(config.input_dir, subfolder)
@@ -133,8 +113,19 @@ for subfolder in sorted(os.listdir(config.input_dir)):
         f"On the left, {base_prompt} "
         f"On the right, {relight_prompt}."
     )
+
+    # NOTE: set up this prompt (more constraint on person identity)
+    final_prompt_2 = (
+        f"A 2x1 image grid;"
+        f"On the left, {base_prompt} "
+        f"On the right, the same person {relight_prompt}."
+    )
+
+    if config.final_prompt_2:
+        print("using final_prompt_2")
+        final_prompt = final_prompt_2
     
-    # Load depth image based on depth_mode (TODO: get depth1 and depth2 from outpainting pipeline)
+    # Load depth image based on depth_mode
     if config.flux_type == "FluxControlPipeline":
         if config.depth_mode == "filtered":
             depth_path = os.path.join(subfolder_path, "pre_processing/depth_filtered.png")
@@ -142,12 +133,23 @@ for subfolder in sorted(os.listdir(config.input_dir)):
             depth_path = os.path.join(subfolder_path, "pre_processing/depth_filtered_pad.png")
         elif config.depth_mode == "raw":
             depth_path = os.path.join(subfolder_path, "pre_processing/depth.png")
+        elif "outpaint" in config.depth_mode:
+            HARDCODE_PATH = f"../outpaint/{config.depth_mode}"
+            depth_path_base = os.path.join(HARDCODE_PATH, relight_id, subfolder, "depth_base.png")
+            depth_path_relight = os.path.join(HARDCODE_PATH, relight_id, subfolder, "depth_relight.png")
         else:
             raise ValueError(f"Unknown depth_mode: {config.depth_mode}")
-                    
-        output_dir = config.output_dir
-        depth_map = Image.open(depth_path).convert('RGB')
-        depth_map_2x1 = Image.fromarray(np.hstack([np.array(depth_map), np.array(depth_map)]))
+
+        output_dir = config.output_dir      
+
+        if "outpaint" in config.depth_mode:
+            depth_map_base = Image.open(depth_path_base).convert('RGB')
+            depth_map_relight = Image.open(depth_path_relight).convert('RGB')
+            assert depth_map_base.size == depth_map_relight.size, "Depth maps must have the same size!"
+            depth_map_2x1 = Image.fromarray(np.hstack([np.array(depth_map_base), np.array(depth_map_relight)]))
+        else:
+            depth_map = Image.open(depth_path).convert('RGB')
+            depth_map_2x1 = Image.fromarray(np.hstack([np.array(depth_map), np.array(depth_map)]))
     
         if config.match_source_resolution:
             print("using source resolution!")

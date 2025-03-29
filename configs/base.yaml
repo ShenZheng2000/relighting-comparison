@@ -10,6 +10,8 @@ flux_type: "FluxControlPipeline"
 match_source_resolution: false
 depth_mode: raw
 resize_generated: false
+final_prompt_2: false
+relighting_prompts_2: false
 
 # Debugging
 max_images: null  # Set to a number for debugging, otherwise leave null if unlimited
