@@ -1,6 +1,6 @@
 input_dir: "/home/shenzhen/Datasets/dataset_with_garment_debug_100"
 
-# Parameters
+# T2I Parameters
 height: 768
 width: 768
 cfg: 5
@@ -12,6 +12,15 @@ depth_mode: raw
 resize_generated: false
 final_prompt_2: false
 relighting_prompts_2: false
+
+# Outpainting Parameters
+cfg_outpaint: 30
+num_inference_steps: 50
+extract_bg_from_base_prompt: true
+save_depth_maps: true
+use_groundedsam2: false
+copy_fg_depth: false
+use_depthanythingv2: false
 
 # Debugging
 max_images: null  # Set to a number for debugging, otherwise leave null if unlimited

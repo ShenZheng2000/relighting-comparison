@@ -1,0 +1,7 @@
+depth_mode: outpaint
+final_prompt_2: true
+use_groundedsam2: true # NOTE: set this as true
+use_depthanythingv2: true # NOTE: set this as true
+copy_fg_depth: true # NOTE: set this as true
+
+max_images: 3 # use this for debugging
