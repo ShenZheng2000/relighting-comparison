@@ -21,6 +21,7 @@ save_depth_maps: true
 use_groundedsam2: false
 copy_fg_depth: false
 use_depthanythingv2: false
+crop_to_foreground: false
 
 # Debugging
 max_images: null  # Set to a number for debugging, otherwise leave null if unlimited

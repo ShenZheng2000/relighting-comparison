@@ -24,6 +24,11 @@ from utils import (
     resize_mask_to_canvas,
 )
 
+'''
+cd outputs/
+python -m http.server 8000
+'''
+
 # ---------------- Outpainting functions ---------------- #
 def run_outpainting(subfolder_path, config, pipe_outpaint, outpaint_prompts, depth_model, use_v2):
     """
@@ -79,11 +84,14 @@ def run_outpainting(subfolder_path, config, pipe_outpaint, outpaint_prompts, dep
     target_height = config.height
     cfg_outpaint = config.cfg_outpaint
     num_inference_steps = config.num_inference_steps  # outpainting steps
+    crop_to_foreground = config.crop_to_foreground
 
     # Outpainting without fg mask (base version).
     canvas_base_no, mask_base_no, _, _, _ = prepare_canvas_and_mask(
         source_image, target_width, target_height,
-        apply_fg_mask=False
+        apply_fg_mask=False,
+        body_mask=body_mask,
+        crop_to_foreground=crop_to_foreground,
     )
     img_out_base_no = pipe_outpaint(
         prompt=base_prompt,
@@ -101,12 +109,15 @@ def run_outpainting(subfolder_path, config, pipe_outpaint, outpaint_prompts, dep
     relight_prompt = outpaint_prompts.get(relight_id, "")
     canvas_relight, mask_relight, relight_scale, relight_x_offset, relight_y_offset = prepare_canvas_and_mask(
         source_image, target_width, target_height,
-        apply_fg_mask=True, body_mask=body_mask
+        apply_fg_mask=True, 
+        body_mask=body_mask,
+        crop_to_foreground=crop_to_foreground,
     )
 
-    print("Relight scale:", relight_scale)
-    print("Relight x offset:", relight_x_offset)
-    print("Relight y offset:", relight_y_offset)
+    # print("print for debugging!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+    # print("Relight scale:", relight_scale)
+    # print("Relight x offset:", relight_x_offset)
+    # print("Relight y offset:", relight_y_offset)
 
     img_out_relight = pipe_outpaint(
         prompt=relight_prompt,
@@ -136,7 +147,7 @@ def run_outpainting(subfolder_path, config, pipe_outpaint, outpaint_prompts, dep
         # process_depth_map(relight_path, depth_relight_path)
         process_depth_map(base_no_path, depth_base_path, depth_model, use_v2=config.use_depthanythingv2)
         process_depth_map(relight_path, depth_relight_path, depth_model, use_v2=config.use_depthanythingv2)
-        print("Saved depth maps.")
+        # print("Saved depth maps.")
 
         # Replace relight foreground depth with base foreground depth if enabled.
         if config.copy_fg_depth:
@@ -157,56 +168,6 @@ def run_outpainting(subfolder_path, config, pipe_outpaint, outpaint_prompts, dep
             depth_relight_np[mask_np == 0] = depth_base_np[mask_np == 0]
             Image.fromarray(depth_relight_np).save(depth_relight_path)
             print("[copy_fg_depth] Replaced relight FG depth with base FG depth")
-
-        # if config.copy_fg_depth:
-        #     # Load depth maps as numpy arrays.
-        #     depth_base_np = np.array(Image.open(depth_base_path))
-        #     depth_relight_np = np.array(Image.open(depth_relight_path))
-        #     print("depth_base_np shape:", depth_base_np.shape)
-        #     print("depth_relight_np shape:", depth_relight_np.shape)
-            
-        #     # Compute new dimensions for the mask using the relight transformation.
-        #     new_mask_w = int(body_mask.width * relight_scale)
-        #     new_mask_h = int(body_mask.height * relight_scale)
-        #     print("Original body_mask size:", body_mask.size)
-        #     print("New mask dimensions:", (new_mask_w, new_mask_h))
-            
-        #     # Resize the mask with NEAREST interpolation.
-        #     resized_mask = body_mask.resize((new_mask_w, new_mask_h), Image.NEAREST)
-        #     print("Resized mask size:", resized_mask.size)
-            
-        #     # Print the transformation offsets.
-        #     print("Relight offsets: x =", relight_x_offset, "y =", relight_y_offset)
-            
-        #     # Create a blank mask canvas with the same dimensions as the depth map.
-        #     mask_canvas = Image.new("L", (depth_base_np.shape[1], depth_base_np.shape[0]), color=255)
-        #     # Paste the resized mask at the computed offsets.
-        #     mask_canvas.paste(resized_mask, (relight_x_offset, relight_y_offset))
-        #     print("Mask canvas size:", mask_canvas.size)
-            
-        #     # Convert the mask canvas to a NumPy array and check unique values.
-        #     mask_np = np.array(mask_canvas)
-        #     print("Unique values in mask_np:", np.unique(mask_np))
-            
-        #     # Save the debug mask image.
-        #     debug_mask_path = os.path.join(outpaint_folder, "mask_np_debug.png")
-        #     mask_canvas.save(debug_mask_path)
-        #     print("Saved debug mask for depth replacement at:", debug_mask_path)
-            
-        #     # Create an overlay to visually check the mask alignment on the base depth.
-        #     depth_base_img = Image.fromarray(depth_base_np).convert("RGB")
-        #     red_overlay = Image.new("RGB", depth_base_img.size, (0, 0, 0))
-        #     fg_mask = Image.fromarray((mask_np == 0).astype(np.uint8) * 255, mode="L")
-        #     red_overlay.paste((255, 0, 0), mask=fg_mask)
-        #     overlayed = Image.blend(depth_base_img, red_overlay, alpha=0.5)
-        #     overlayed_path = os.path.join(outpaint_folder, "depth_base_with_mask.png")
-        #     overlayed.save(overlayed_path)
-        #     print("Saved overlayed depth image with mask at:", overlayed_path)
-            
-        #     # Perform the foreground depth replacement.
-        #     depth_relight_np[mask_np == 0] = depth_base_np[mask_np == 0]
-        #     Image.fromarray(depth_relight_np).save(depth_relight_path)
-        #     print("[copy_fg_depth] Replaced relight FG depth with base FG depth")
 
     return base_no_path, relight_path
 
@@ -342,7 +303,7 @@ def main():
     del pipe_outpaint
     del depth_model
     torch.cuda.empty_cache()
-    print("Outpainting stage complete. Memory freed.")
+    # print("Outpainting stage complete. Memory freed.")
 
     # ----------- Inference Stage ----------- #
     print("Loading inference pipeline...")

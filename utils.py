@@ -7,6 +7,7 @@ import os
 import torch
 import numpy as np
 from image_gen_aux import DepthPreprocessor
+from PIL import ImageOps
 
 # depth_processor = DepthPreprocessor.from_pretrained("LiheYoung/depth-anything-large-hf")
 
@@ -25,17 +26,29 @@ relighting_prompts = {
 }
 
 # NOTE: I make the prompt longer (more details and more concret objects), and use relit instead of Relit (though it should not matter) => suitable for outpainting
+# relighting_prompts_2 = {
+#     "golden_hour": "relit by warm, golden-hour sunlight streaming through tall oak trees in a tranquil park, highlighting patches of wildflowers and casting long, soft-edged shadows across the grassy ground, creating a dreamy, atmospheric glow.",
+#     "moonlight": "relit by cool, bluish moonlight streaming through an ancient, open window of a secluded manor, softly illuminating weathered stone walls draped in ivy and casting gentle, diffused shadows across a dew-kissed courtyard, evoking a serene, enchanted nocturnal ambiance.",
+#     "noon_sunlight": "relit by bright, overhead noon sunlight blazing over a lively urban plaza, sharply defining every corner with crisp shadows and vivid highlights on modern glass and concrete structures, creating a dynamic and energetic daytime scene.",
+#     "neon_lights": "relit by vibrant neon lights reflecting off rain-slicked city streets, where electric hues of pink, blue, and purple burst from storefronts and billboards, bathing the surroundings in a futuristic, cyberpunk glow.",
+#     "candlelight": "relit by the gentle flicker of candlelight in an intimate setting, where warm amber tones softly dance over rustic wooden surfaces and delicate fabrics, creating a cozy, nostalgic ambiance filled with quiet charm.",
+#     "spotlight": "relit by a harsh, focused spotlight that isolates its subject on a dark stage, casting stark, dramatic shadows and accentuating fine details, resulting in an intense, theatrical visual impact.",
+#     "thunderstorm": "relit by sudden bursts of lightning during a raging thunderstorm, illuminating turbulent, swirling clouds and casting deep, shifting shadows over rain-soaked landscapes, evoking a dramatic, high-contrast spectacle.",
+#     "meteor_shower": "relit by a dazzling meteor shower streaking across a starry night sky over a barren desert, with each fleeting, radiant trail briefly lighting up the horizon and lending an ethereal, cosmic mystique.",
+#     "volcanic_glow": "relit by the fierce, fiery glow of molten lava cascading down a rugged mountainside, its vivid red and orange hues flickering against dark, ashen terrain, evoking an apocalyptic, otherworldly scene.",
+#     "foggy_morning": "relit by the soft, diffused light of an early foggy morning in a quiet countryside, where gentle rays pierce through a thick mist over dew-covered fields and ancient trees, creating a serene, dreamlike atmosphere."
+# }
+
 relighting_prompts_2 = {
     "golden_hour": "relit by warm, golden-hour sunlight streaming through tall oak trees in a tranquil park, highlighting patches of wildflowers and casting long, soft-edged shadows across the grassy ground, creating a dreamy, atmospheric glow.",
-    "moonlight": "relit by cool, bluish moonlight streaming through an ancient, open window of a secluded manor, softly illuminating weathered stone walls draped in ivy and casting gentle, diffused shadows across a dew-kissed courtyard, evoking a serene, enchanted nocturnal ambiance.",
     "noon_sunlight": "relit by bright, overhead noon sunlight blazing over a lively urban plaza, sharply defining every corner with crisp shadows and vivid highlights on modern glass and concrete structures, creating a dynamic and energetic daytime scene.",
     "neon_lights": "relit by vibrant neon lights reflecting off rain-slicked city streets, where electric hues of pink, blue, and purple burst from storefronts and billboards, bathing the surroundings in a futuristic, cyberpunk glow.",
     "candlelight": "relit by the gentle flicker of candlelight in an intimate setting, where warm amber tones softly dance over rustic wooden surfaces and delicate fabrics, creating a cozy, nostalgic ambiance filled with quiet charm.",
-    "spotlight": "relit by a harsh, focused spotlight that isolates its subject on a dark stage, casting stark, dramatic shadows and accentuating fine details, resulting in an intense, theatrical visual impact.",
-    "thunderstorm": "relit by sudden bursts of lightning during a raging thunderstorm, illuminating turbulent, swirling clouds and casting deep, shifting shadows over rain-soaked landscapes, evoking a dramatic, high-contrast spectacle.",
-    "meteor_shower": "relit by a dazzling meteor shower streaking across a starry night sky over a barren desert, with each fleeting, radiant trail briefly lighting up the horizon and lending an ethereal, cosmic mystique.",
-    "volcanic_glow": "relit by the fierce, fiery glow of molten lava cascading down a rugged mountainside, its vivid red and orange hues flickering against dark, ashen terrain, evoking an apocalyptic, otherworldly scene.",
-    "foggy_morning": "relit by the soft, diffused light of an early foggy morning in a quiet countryside, where gentle rays pierce through a thick mist over dew-covered fields and ancient trees, creating a serene, dreamlike atmosphere."
+    "foggy_morning": "relit by the soft, diffused light of an early foggy morning in a quiet countryside, where gentle rays pierce through a thick mist over dew-covered fields and ancient trees, creating a serene, dreamlike atmosphere.",
+    "moonlight": "relit by soft, bluish moonlight filtering through an open window framed by gently swaying curtains, casting pale, silvery light across worn wooden floorboards, scattered books, and the edge of a cozy armchair, creating a serene, nighttime glow filled with quiet stillness.",
+    # NOTE: these are not good. skip for now. 
+    # "spotlight": "relit by a focused spotlight shining across a stage set with painted backdrops, scattered props, and polished floorboards, casting layered shadows that define the scene with bold contrasts while retaining subtle detail in the surroundings.",
+    # "snowy_morning": "relit by the soft, diffused light of a snowy morning, where gentle rays reflect off pristine white snow and delicate shadows trace the contours of frost-kissed trees, creating a peaceful, wintry scene imbued with serene charm."
 }
 
 def concat_images_side_by_side(image1, image2):
@@ -86,18 +99,6 @@ def load_config(args):
     config.output_dir = os.path.splitext(os.path.basename(args.exp_config))[0]
     print(OmegaConf.to_yaml(config))
     return config
-
-
-# def load_pipeline(config):
-#     """Load the appropriate pre-trained model on the specified GPU."""
-#     device = f"cuda:{config.gpu}"
-#     pipe = FluxControlPipeline.from_pretrained(
-#             "black-forest-labs/FLUX.1-Depth-dev",
-#             torch_dtype=torch.bfloat16
-#     ).to(device)
-#     pipe.set_progress_bar_config(disable=True)
-#     return pipe
-
 
 def load_depth_map(subfolder_path, config, relight_id):
     if config.depth_mode == "filtered":
@@ -199,100 +200,45 @@ def process_body_mask(input_path, black_mask_output_path):
     print(f"Saved black foreground mask: {black_mask_output_path}")
     return black_mask_output_path
 
-# def process_body_mask(input_path, white_mask_output_path):
-#     """
-#     Convert an RGBA image to both white and black foreground masks.
-#     The white foreground mask has the foreground in white and background in black.
-#     The black foreground mask has the foreground in black and background in white.
-    
-#     Args:
-#         input_path (str): Path to the input RGBA body mask.
-#         white_mask_output_path (str): Path to save the white foreground mask.
-    
-#     Returns:
-#         tuple: (white_mask_path, black_mask_path)
-#     """
-#     img = Image.open(input_path).convert("RGBA")
-#     orig_w, orig_h = img.size
-#     img = np.array(img)
+def prepare_canvas_and_mask(image, target_width, target_height, apply_fg_mask=False, body_mask=None, crop_to_foreground=False):
+    '''
+    Resizes and centers an image on a fixed-size canvas with black padding, optionally creating a matching mask.
+    If crop_to_foreground is True and a body_mask is provided, the image is tightly cropped to the foreground.
+    '''
 
-#     # Extract the alpha channel (mask)
-#     alpha_channel = img[:, :, 3]
+    # --- Crop to foreground if enabled ---
+    if crop_to_foreground and body_mask is not None:
+        # Invert, since the foreground is black
+        inverted_mask = ImageOps.invert(body_mask)
+        bbox = inverted_mask.getbbox()
+        if bbox is not None:
+            left, upper, right, lower = bbox
+            image = image.crop((left, upper, right, lower))
+            body_mask = body_mask.crop((left, upper, right, lower))
 
-#     # Create the white foreground mask (foreground in white, background in black)
-#     white_fg_mask = np.where(alpha_channel > 0, 255, 0).astype(np.uint8)
-#     # Create the black foreground mask (foreground in black, background in white)
-#     black_fg_mask = np.where(alpha_channel > 0, 0, 255).astype(np.uint8)
-
-#     # Save the masks
-#     Image.fromarray(white_fg_mask).save(white_mask_output_path)
-#     black_mask_output_path = white_mask_output_path.replace("white_fg_mask.png", "black_fg_mask.png")
-#     Image.fromarray(black_fg_mask).save(black_mask_output_path)
-#     print(f"Saved masks: {white_mask_output_path}, {black_mask_output_path}")
-#     return white_mask_output_path, black_mask_output_path
-
-# def prepare_canvas_and_mask(image, target_width, target_height, apply_fg_mask=False, body_mask=None):
-#     """
-#     If apply_fg_mask is False: keep entire original image, outpaint only out-of-bound areas.
-#     If True: preserve only the body_mask (black) and outpaint background+OOB (white).
-#     """
-#     orig_w, orig_h = image.size
-#     # scale = min(target_width / orig_w, target_height / orig_h, 1.0)
-#     scale = min(target_width / orig_w, target_height / orig_h)
-#     new_w, new_h = int(orig_w * scale), int(orig_h * scale)
-
-#     # Resize image and mask
-#     image = image.resize((new_w, new_h), Image.LANCZOS)
-#     if apply_fg_mask and body_mask is not None:
-#         body_mask = body_mask.resize((new_w, new_h), Image.NEAREST)
-
-#     # Create a blank canvas for the image
-#     canvas = Image.new("RGB", (target_width, target_height), color=(0, 0, 0))
-#     x_offset = (target_width - new_w) // 2
-#     y_offset = (target_height - new_h) // 2
-#     canvas.paste(image, (x_offset, y_offset))
-
-#     if apply_fg_mask and body_mask is not None:
-#         # body_mask: black=preserved, white=outpaint
-#         mask_canvas = Image.new("L", (target_width, target_height), color=255)
-#         mask_canvas.paste(body_mask, (x_offset, y_offset))
-#         return canvas, mask_canvas
-#     else:
-#         # Only outpaint OOB: black=preserved image region, white=rest
-#         mask_canvas = Image.new("L", (target_width, target_height), color=255)
-#         draw = ImageDraw.Draw(mask_canvas)
-#         draw.rectangle((x_offset, y_offset, x_offset + new_w, y_offset + new_h), fill=0)
-#         return canvas, mask_canvas
-
-def prepare_canvas_and_mask(image, target_width, target_height, apply_fg_mask=False, body_mask=None):
+    # --- Resize image and paste to canvas ---
     orig_w, orig_h = image.size
     scale = min(target_width / orig_w, target_height / orig_h)
     new_w, new_h = int(orig_w * scale), int(orig_h * scale)
     x_offset = (target_width - new_w) // 2
     y_offset = (target_height - new_h) // 2
 
-    # # Debug prints for canvas creation.
-    # print("prepare_canvas_and_mask:")
-    # print("  Original image size:", image.size)
-    # print("  Target size:", (target_width, target_height))
-    # print("  Scale:", scale)
-    # print("  New size:", (new_w, new_h))
-    # print("  Offsets:", (x_offset, y_offset))
-    
     canvas = Image.new("RGB", (target_width, target_height), color=(0, 0, 0))
     canvas.paste(image.resize((new_w, new_h), Image.LANCZOS), (x_offset, y_offset))
 
+    # --- Create the mask ---
     if apply_fg_mask and body_mask is not None:
         body_mask_resized = body_mask.resize((new_w, new_h), Image.NEAREST)
         mask_canvas = Image.new("L", (target_width, target_height), color=255)
         mask_canvas.paste(body_mask_resized, (x_offset, y_offset))
-        return canvas, mask_canvas, scale, x_offset, y_offset
     else:
         mask_canvas = Image.new("L", (target_width, target_height), color=255)
         from PIL import ImageDraw
         draw = ImageDraw.Draw(mask_canvas)
         draw.rectangle((x_offset, y_offset, x_offset + new_w, y_offset + new_h), fill=0)
-        return canvas, mask_canvas, scale, x_offset, y_offset
+
+    return canvas, mask_canvas, scale, x_offset, y_offset
+
 
 def resize_mask_to_canvas(mask, target_width, target_height):
     # Get original size
