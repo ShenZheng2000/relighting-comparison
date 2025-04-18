@@ -41,14 +41,12 @@
 # python outpaint2.py --exp_config configs/exp_4_2_v1.yaml --relight_type candlelight --gpu 3
 # python outpaint2.py --exp_config configs/exp_4_2_v1.yaml --relight_type foggy_morning --gpu 5
 
-
+# exp_4_3_v1
 # python outpaint2.py --exp_config configs/exp_4_3_v1.yaml --relight_type golden_hour --gpu 1
 # python outpaint2.py --exp_config configs/exp_4_3_v1.yaml --relight_type noon_sunlight --gpu 0
 # python outpaint2.py --exp_config configs/exp_4_3_v1.yaml --relight_type neon_lights --gpu 0
 # python outpaint2.py --exp_config configs/exp_4_3_v1.yaml --relight_type candlelight --gpu 0
 # python outpaint2.py --exp_config configs/exp_4_3_v1.yaml --relight_type foggy_morning --gpu 1
-
-
 # python outpaint2.py --exp_config configs/exp_4_3_v1.yaml --relight_type spotlight --gpu 0
 # python outpaint2.py --exp_config configs/exp_4_3_v1.yaml --relight_type moonlight --gpu 0
 # python outpaint2.py --exp_config configs/exp_4_3_v1.yaml --relight_type snowy_morning --gpu 1
@@ -66,6 +64,52 @@
 # python outpaint2.py --exp_config configs/exp_4_3_v2.yaml --relight_type foggy_morning --gpu 4
 # python outpaint2.py --exp_config configs/exp_4_3_v2.yaml --relight_type moonlight --gpu 0
 
-# TODO: think about more/better relighting types
-
 # NOTE: if train on entire dataset, first copy to /scratch, /ssd, or /ssd1
+
+# TODO: try many more seed, and summarize the lighting charateristics (e.g., front/back/side lighting, etc.)
+# prompt_version 2 => used before
+# for i in {1..99}; do python outpaint2.py --exp_config configs/seeds/exp_4_10_v${i}.yaml --relight_type golden_hour --gpu 3; done
+
+# prompt_version 4 => extremely simplified
+# for i in {1..99}; do python outpaint2.py --exp_config configs/seeds/exp_4_14_v${i}.yaml --relight_type golden_hour --gpu 4; done
+
+# prompt_version 3 => indoor scenes
+# for i in {1..99}; do python outpaint2.py --exp_config configs/seeds/exp_4_15_v${i}.yaml --relight_type golden_hour --gpu 5; done
+
+# # prompt_version 5 => explicit light directions
+# python outpaint2.py --exp_config configs/seeds/exp_4_16_v0.yaml --relight_type golden_hour_front --gpu 0
+# python outpaint2.py --exp_config configs/seeds/exp_4_16_v0.yaml --relight_type golden_hour_side --gpu 2
+# python outpaint2.py --exp_config configs/seeds/exp_4_16_v0.yaml --relight_type golden_hour_back --gpu 3
+
+# python outpaint2.py --exp_config configs/seeds/exp_4_13_v0.yaml --relight_type golden_hour_front --gpu 0
+# python outpaint2.py --exp_config configs/seeds/exp_4_13_v0.yaml --relight_type golden_hour_side --gpu 1 &
+# python outpaint2.py --exp_config configs/seeds/exp_4_13_v0.yaml --relight_type golden_hour_left --gpu 2 &
+# python outpaint2.py --exp_config configs/seeds/exp_4_13_v0.yaml --relight_type golden_hour_right --gpu 3
+# wait
+
+# python outpaint2.py --exp_config configs/seeds/exp_4_13_v0.yaml --relight_type golden_hour_side --gpu 0 &
+# python outpaint2.py --exp_config configs/seeds/exp_4_13_v0.yaml --relight_type golden_hour_back --gpu 1 &
+# python outpaint2.py --exp_config configs/seeds/exp_4_13_v0.yaml --relight_type golden_hour_front --gpu 2 &
+# wait
+
+# # prompt version 7
+# for i in {1..9}; do python outpaint2.py --exp_config configs/seeds/exp_4_171_v${i}.yaml --relight_type golden_hour_side --gpu 0; done &
+# for i in {1..9}; do python outpaint2.py --exp_config configs/seeds/exp_4_171_v${i}.yaml --relight_type golden_hour_back --gpu 1; done &
+# for i in {1..9}; do python outpaint2.py --exp_config configs/seeds/exp_4_171_v${i}.yaml --relight_type golden_hour_front --gpu 2; done &
+# wait
+
+# # prompt version 1 (default; detailed)
+# for i in {1..9}; do python outpaint2.py --exp_config configs/seeds/exp_4_170_v${i}.yaml --relight_type golden_hour --gpu 0; done &
+# for i in {1..9}; do python outpaint2.py --exp_config configs/seeds/exp_4_172_v${i}.yaml --relight_type golden_hour --gpu 1; done &
+# wait
+
+# prompt_version 6
+# python outpaint2.py --exp_config configs/seeds/exp_4_13_v0.yaml --relight_type golden_hour_back --gpu 0
+
+# prompt_version 6 (extract fg from base prompt for generation => base image is diaster, since no background information)
+for i in {0..99}; do python outpaint2.py --exp_config configs/seeds/exp_4_13_v${i}.yaml --relight_type golden_hour_back --gpu 0; done &
+for i in {0..99}; do python outpaint2.py --exp_config configs/seeds/exp_4_13_v${i}.yaml --relight_type golden_hour_side --gpu 1; done &
+for i in {0..99}; do python outpaint2.py --exp_config configs/seeds/exp_4_13_v${i}.yaml --relight_type golden_hour_front --gpu 2; done &
+wait
+
+# TODO: outpaint have severe issues (weak background information; need to fix it) 

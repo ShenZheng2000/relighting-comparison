@@ -6,6 +6,7 @@ from PIL import Image, ImageDraw, ImageFont, ImageFilter
 from diffusers import FluxControlPipeline
 from image_gen_aux import DepthPreprocessor
 from transformers import pipeline
+from utils import relighting_prompt_versions  # make sure it's imported
 
 # Import your utilities and pipelines.
 from diffusers import FluxFillPipeline
@@ -20,6 +21,7 @@ from utils import (
     prepare_canvas_and_mask,
     process_body_mask,
     extract_background,
+    extract_foreground,
     process_depth_map,
     resize_mask_to_canvas,
 )
@@ -52,9 +54,6 @@ def run_outpainting(subfolder_path, config, pipe_outpaint, outpaint_prompts, dep
     source_image_path = image_files[0]
     body_mask_rgba_path = mask_files[0]
 
-    # Process or load body mask.
-    # white_mask_path = os.path.join(subfolder_path, "pre_processing/white_fg_mask.png")
-
     # NOTE: decide to use original or grounded sam2 mask
     if config.use_groundedsam2:
         black_mask_path = os.path.join(subfolder_path, "pre_processing/black_fg_mask_groundedsam2.png")
@@ -86,23 +85,24 @@ def run_outpainting(subfolder_path, config, pipe_outpaint, outpaint_prompts, dep
     num_inference_steps = config.num_inference_steps  # outpainting steps
     crop_to_foreground = config.crop_to_foreground
 
-    # Outpainting without fg mask (base version).
-    canvas_base_no, mask_base_no, _, _, _ = prepare_canvas_and_mask(
-        source_image, target_width, target_height,
-        apply_fg_mask=False,
-        body_mask=body_mask,
-        crop_to_foreground=crop_to_foreground,
-    )
-    img_out_base_no = pipe_outpaint(
-        prompt=base_prompt,
-        image=canvas_base_no,
-        mask_image=mask_base_no,
-        height=target_height,
-        width=target_width,
-        guidance_scale=cfg_outpaint,
-        num_inference_steps=num_inference_steps,
-        generator=torch.Generator("cpu").manual_seed(42)
-    ).images[0]
+    # Outpainting without rectangle (not fg mask) (base version).
+    if not config.relight_image_only:
+        canvas_base_no, mask_base_no, _, _, _ = prepare_canvas_and_mask(
+            source_image, target_width, target_height,
+            apply_fg_mask=False,
+            body_mask=body_mask,
+            crop_to_foreground=crop_to_foreground,
+        )
+        img_out_base_no = pipe_outpaint(
+            prompt=base_prompt,
+            image=canvas_base_no,
+            mask_image=mask_base_no,
+            height=target_height,
+            width=target_width,
+            guidance_scale=cfg_outpaint,
+            num_inference_steps=num_inference_steps,
+            generator=torch.Generator("cpu").manual_seed(42)
+        ).images[0]
 
     # Outpainting with fg mask (relight version).
     relight_id = config.relight_type
@@ -114,11 +114,6 @@ def run_outpainting(subfolder_path, config, pipe_outpaint, outpaint_prompts, dep
         crop_to_foreground=crop_to_foreground,
     )
 
-    # print("print for debugging!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-    # print("Relight scale:", relight_scale)
-    # print("Relight x offset:", relight_x_offset)
-    # print("Relight y offset:", relight_y_offset)
-
     img_out_relight = pipe_outpaint(
         prompt=relight_prompt,
         image=canvas_relight,
@@ -127,7 +122,7 @@ def run_outpainting(subfolder_path, config, pipe_outpaint, outpaint_prompts, dep
         width=target_width,
         guidance_scale=cfg_outpaint,
         num_inference_steps=num_inference_steps,
-        generator=torch.Generator("cpu").manual_seed(42)
+        generator=torch.Generator("cpu").manual_seed(config.seed),
     ).images[0]
 
     # Instead of saving inside the input subfolder, we save to the output directory.
@@ -135,7 +130,10 @@ def run_outpainting(subfolder_path, config, pipe_outpaint, outpaint_prompts, dep
     os.makedirs(outpaint_folder, exist_ok=True)
     base_no_path = os.path.join(outpaint_folder, "img_out_base.png")
     relight_path = os.path.join(outpaint_folder, "img_out_relight.png")
-    img_out_base_no.save(base_no_path)
+
+    if not config.relight_image_only:
+        img_out_base_no.save(base_no_path)
+
     img_out_relight.save(relight_path)
     print(f"Saved outpaint images in {outpaint_folder}")
 
@@ -143,31 +141,16 @@ def run_outpainting(subfolder_path, config, pipe_outpaint, outpaint_prompts, dep
     if config.save_depth_maps:
         depth_base_path = os.path.join(outpaint_folder, "depth_base.png")
         depth_relight_path = os.path.join(outpaint_folder, "depth_relight.png")
-        # process_depth_map(base_no_path, depth_base_path)
-        # process_depth_map(relight_path, depth_relight_path)
-        process_depth_map(base_no_path, depth_base_path, depth_model, use_v2=config.use_depthanythingv2)
+
+        if not config.relight_image_only:
+            process_depth_map(base_no_path, depth_base_path, depth_model, use_v2=config.use_depthanythingv2)
+
         process_depth_map(relight_path, depth_relight_path, depth_model, use_v2=config.use_depthanythingv2)
         # print("Saved depth maps.")
 
         # Replace relight foreground depth with base foreground depth if enabled.
         if config.copy_fg_depth:
-            # Load the saved depth maps as numpy arrays.
-            depth_base_np = np.array(Image.open(depth_base_path))
-            depth_relight_np = np.array(Image.open(depth_relight_path))
-
-            # Resize the body mask to match the depth map dimensions (width, height)
-            mask_canvas = resize_mask_to_canvas(body_mask, depth_base_np.shape[1], depth_base_np.shape[0])
-            mask_np = np.array(mask_canvas)
-
-            # Save the mask for debugging (optional)
-            mask_path = os.path.join(outpaint_folder, "mask_np.png")
-            mask_canvas.save(mask_path)
-            print(f"Saved mask for debugging: {mask_path}")
-
-            # Copy foreground: for pixels where mask equals 0 (foreground), replace the relight depth with the base depth.
-            depth_relight_np[mask_np == 0] = depth_base_np[mask_np == 0]
-            Image.fromarray(depth_relight_np).save(depth_relight_path)
-            print("[copy_fg_depth] Replaced relight FG depth with base FG depth")
+            raise NotImplementedError("copy_fg_depth is not implemented yet.")
 
     return base_no_path, relight_path
 
@@ -207,47 +190,57 @@ def process_subfolder_inference(subfolder_path, config, pipe_inference, prompts)
     with open(annotation_path, "r") as f:
         base_prompt = f.read().strip()
 
+    if config.extract_fg_from_base_prompt_for_generation:
+        base_prompt = extract_foreground(base_prompt)
+        # print("Extracted base_prompt foreground for generation:", base_prompt)
+
     # Build the final prompt.
     relight_id = config.relight_type
     relight_prompt = prompts.get(relight_id, "")
-    final_prompt = (
-        f"A photo of a person in a 2 by 1 grid. "
-        f"On the left, {base_prompt} "
-        f"On the right, {relight_prompt}."
-    )
-    if config.final_prompt_2:
-        print("Using alternate final prompt.")
+
+    if config.relight_image_only:
+        # Use only the relight prompt.
+        final_prompt = relight_prompt
+        output_width = config.width  # Single image width.
+    else:
+        # Use the 2x1 grid prompt.
         final_prompt = (
-            f"A 2x1 image grid; "
+            f"A photo of a person in a 2 by 1 grid. "
             f"On the left, {base_prompt} "
-            f"On the right, the same person {relight_prompt}."
+            f"On the right, {relight_prompt}."
         )
+        if config.final_prompt_2:
+            print("Using alternate final prompt.")
+            final_prompt = (
+                f"A 2x1 image grid; "
+                f"On the left, {base_prompt} "
+                f"On the right, the same person {relight_prompt}."
+            )
+        output_width = config.width * 2  # Grid: double the width.
 
     # Load or compute the depth map.
     depth_map_2x1 = load_depth_map(subfolder_path, config, relight_id)
 
     # Decide on image dimensions.
     if config.match_source_resolution:
-        height, width = source_image.height, source_image.width
-        print(f"Using source resolution: height={height}, width={width}")
-    else:
-        height, width = config.height, config.width
+        raise NotImplementedError("match_source_resolution is not implemented yet.")
 
     # Run inference (T2I).
     image = pipe_inference(
         prompt=final_prompt,
         control_image=depth_map_2x1,
-        height=height,
-        width=width * 2,  # 2x width for the grid
+        # height=height,
+        # width=width * 2,  # 2x width for the grid
+        height=config.height,
+        width=output_width,
         guidance_scale=config.cfg,
         num_inference_steps=config.num_steps,
         max_sequence_length=512,
-        generator=torch.Generator("cpu").manual_seed(42),
+        generator=torch.Generator("cpu").manual_seed(config.seed),
     ).images[0]
 
     if config.resize_generated:
-        print("Resizing generated image to match source resolution (2x width).")
-        image = image.resize((source_image.width * 2, source_image.height), Image.BILINEAR)
+        raise NotImplementedError("resize_generated is not implemented yet.")
 
     # Save the final concatenated result.
     output_dir_final = os.path.join("outputs", config.output_dir, relight_id)
@@ -296,7 +289,9 @@ def main():
     pipe_outpaint.set_progress_bar_config(disable=True)
 
     # NOTE: use this prompt, which has more details on concret objects
-    outpaint_prompts = relighting_prompts_2
+    # outpaint_prompts = relighting_prompts_2 if config.relighting_prompts_2 else relighting_prompts
+    outpaint_prompts = relighting_prompt_versions[str(config.prompt_version)]
+
     print("Running outpainting on all subfolders...")
     run_outpainting_loop(config, pipe_outpaint, outpaint_prompts, depth_model, use_v2)
     
@@ -314,7 +309,9 @@ def main():
     pipe_inference.set_progress_bar_config(disable=True)
 
     # Choose prompts for inference.
-    prompts = relighting_prompts_2 if config.relighting_prompts_2 else relighting_prompts
+    # prompts = relighting_prompts_2 if config.relighting_prompts_2 else relighting_prompts
+    prompts = relighting_prompt_versions[str(config.prompt_version)]
+
     print("Running inference on all subfolders...")
     run_inference_loop(config, pipe_inference, prompts)
     print("Inference stage complete.")

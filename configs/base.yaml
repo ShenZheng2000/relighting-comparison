@@ -23,5 +23,11 @@ copy_fg_depth: false
 use_depthanythingv2: false
 crop_to_foreground: false
 
+# Others
+seed: 42
+relight_image_only: false
+prompt_version: 1
+extract_fg_from_base_prompt_for_generation: false
+
 # Debugging
 max_images: null  # Set to a number for debugging, otherwise leave null if unlimited

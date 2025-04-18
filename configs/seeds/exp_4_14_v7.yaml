@@ -1,0 +1,24 @@
+# T2I Parameters (/16 and /14)
+height: 784
+width: 784
+
+# Outpainting Parameters
+depth_mode: outpaint
+final_prompt_2: true # this is not useful, but keep it for now
+use_groundedsam2: true # NOTE: set this as true
+crop_to_foreground: true # NOTE: set this as true
+
+relight_image_only: true
+
+
+# NOTE: use new versions for relight
+prompt_version: 4
+
+
+# Debugging
+max_images: 1
+
+
+
+
+seed: 7

@@ -3,3 +3,4 @@ data/
 __pycache__/
 outpaint/
 output_outpaint_debug/
+debug_outputs/
